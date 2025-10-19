@@ -4,15 +4,14 @@ import time
 import threading
 from datetime import datetime, timedelta
 from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 
 print("🚀 Starting Telegram Reminder Bot...")
 
 # Get bot token from environment
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 if not BOT_TOKEN:
-    print("❌ ERROR: No BOT_TOKEN found in environment variables!")
-    print("💡 Make sure you set BOT_TOKEN in Render environment variables")
+    print("❌ ERROR: No BOT_TOKEN found!")
     exit(1)
 
 print("✅ Bot token found, initializing...")
@@ -39,7 +38,7 @@ def save_reminders(reminders):
 # Global reminders dictionary
 reminders = load_reminders()
 
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def start_command(update: Update, context: CallbackContext):
     """Handler for /start command"""
     print(f"👋 User {update.effective_user.id} started the bot")
     
@@ -49,7 +48,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     
-    await update.message.reply_text(
+    update.message.reply_text(
         "🤖 **Reminder Bot Started!**\n\n"
         "I can help you set reminders for important events!\n\n"
         "**Quick Commands:**\n"
@@ -61,7 +60,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown'
     )
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def help_command(update: Update, context: CallbackContext):
     """Handler for /help command"""
     help_text = """
 🆘 **How to Use This Bot**
@@ -82,9 +81,9 @@ Use: `/remind Event Name - YYYY-MM-DD - HH:MM`
 • Simple keyboard interface
 • 24/7 reliable service
     """
-    await update.message.reply_text(help_text, parse_mode='Markdown')
+    update.message.reply_text(help_text, parse_mode='Markdown')
 
-async def remind_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def remind_command(update: Update, context: CallbackContext):
     """Handler for /remind command"""
     user_id = update.effective_user.id
     
@@ -94,7 +93,7 @@ async def remind_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parts = [part.strip() for part in text.split('-') if part.strip()]
         
         if len(parts) != 3:
-            await update.message.reply_text(
+            update.message.reply_text(
                 "❌ **Incorrect format!**\n\n"
                 "**Correct format:**\n"
                 "`/remind Event Name - YYYY-MM-DD - HH:MM`\n\n"
@@ -107,8 +106,8 @@ async def remind_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         event_name, event_date, event_time = parts
         
         # Validate date and time
-        datetime.strptime(event_date, '%Y-%m-%d')  # This will raise ValueError if invalid
-        datetime.strptime(event_time, '%H:%M')     # This will raise ValueError if invalid
+        datetime.strptime(event_date, '%Y-%m-%d')
+        datetime.strptime(event_time, '%H:%M')
         
         # Create reminder ID
         reminder_id = f"{user_id}_{int(time.time())}"
@@ -129,7 +128,7 @@ async def remind_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         print(f"✅ User {user_id} set reminder: {event_name} at {event_datetime}")
         
-        await update.message.reply_text(
+        update.message.reply_text(
             f"✅ **Reminder Set Successfully!**\n\n"
             f"**Event:** {event_name}\n"
             f"**Date:** {event_date}\n"
@@ -140,7 +139,7 @@ async def remind_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
     except ValueError as e:
-        await update.message.reply_text(
+        update.message.reply_text(
             "❌ **Invalid date or time format!**\n\n"
             "**Date must be:** YYYY-MM-DD (e.g., 2024-12-25)\n"
             "**Time must be:** HH:MM (e.g., 14:30)\n\n"
@@ -150,11 +149,11 @@ async def remind_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as e:
         print(f"❌ Error in remind_command: {e}")
-        await update.message.reply_text(
+        update.message.reply_text(
             "❌ Sorry, there was an error setting your reminder. Please try again."
         )
 
-async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def list_command(update: Update, context: CallbackContext):
     """Handler for /list command - show user's reminders"""
     user_id = update.effective_user.id
     
@@ -166,7 +165,7 @@ async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_reminders.append(reminder)
     
     if not user_reminders:
-        await update.message.reply_text(
+        update.message.reply_text(
             "📭 **You have no active reminders.**\n\n"
             "Set one using: `/remind Event Name - YYYY-MM-DD - HH:MM`",
             parse_mode='Markdown'
@@ -184,11 +183,11 @@ async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"   ⏰ {reminder['reminder_minutes']} minutes before\n\n"
         )
     
-    await update.message.reply_text(message, parse_mode='Markdown')
+    update.message.reply_text(message, parse_mode='Markdown')
 
-async def add_reminder_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def add_reminder_button(update: Update, context: CallbackContext):
     """Handler for Add Reminder button"""
-    await update.message.reply_text(
+    update.message.reply_text(
         "📝 **Set a New Reminder**\n\n"
         "Use this format:\n"
         "`/remind Event Name - YYYY-MM-DD - HH:MM`\n\n"
@@ -198,13 +197,13 @@ async def add_reminder_button(update: Update, context: ContextTypes.DEFAULT_TYPE
         parse_mode='Markdown'
     )
 
-async def my_reminders_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def my_reminders_button(update: Update, context: CallbackContext):
     """Handler for My Reminders button"""
-    await list_command(update, context)
+    list_command(update, context)
 
-async def help_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def help_button(update: Update, context: CallbackContext):
     """Handler for Help button"""
-    await help_command(update, context)
+    help_command(update, context)
 
 def check_reminders():
     """Check and send due reminders"""
@@ -240,7 +239,7 @@ def check_reminders():
         save_reminders(reminders)
         print(f"✅ Processed {len(reminders_to_send)} due reminders")
 
-def reminder_checker_worker(app):
+def reminder_checker_worker(updater):
     """Background worker to check reminders"""
     print("🕐 Starting reminder checker worker...")
     while True:
@@ -251,30 +250,39 @@ def reminder_checker_worker(app):
             print(f"❌ Error in reminder worker: {e}")
             time.sleep(60)
 
+def error_handler(update: Update, context: CallbackContext):
+    """Error handler"""
+    print(f"❌ Error occurred: {context.error}")
+
 def main():
-    print("🔧 Initializing Telegram Bot Application...")
+    print("🔧 Initializing Telegram Bot...")
     
-    # Create application
-    application = Application.builder().token(BOT_TOKEN).build()
-    print("✅ Application created successfully")
+    # Create updater
+    updater = Updater(BOT_TOKEN, use_context=True)
+    dp = updater.dispatcher
+    
+    print("✅ Updater created successfully")
     
     # Add command handlers
-    application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("remind", remind_command))
-    application.add_handler(CommandHandler("list", list_command))
+    dp.add_handler(CommandHandler("start", start_command))
+    dp.add_handler(CommandHandler("help", help_command))
+    dp.add_handler(CommandHandler("remind", remind_command))
+    dp.add_handler(CommandHandler("list", list_command))
     
     # Add button handlers
-    application.add_handler(MessageHandler(filters.Regex('^(📅 Add Reminder)$'), add_reminder_button))
-    application.add_handler(MessageHandler(filters.Regex('^(📋 My Reminders)$'), my_reminders_button))
-    application.add_handler(MessageHandler(filters.Regex('^(🆘 Help)$'), help_button))
+    dp.add_handler(MessageHandler(Filters.regex('^(📅 Add Reminder)$'), add_reminder_button))
+    dp.add_handler(MessageHandler(Filters.regex('^(📋 My Reminders)$'), my_reminders_button))
+    dp.add_handler(MessageHandler(Filters.regex('^(🆘 Help)$'), help_button))
+    
+    # Add error handler
+    dp.add_error_handler(error_handler)
     
     print("✅ All handlers added")
     
     # Start reminder checker in background
     worker_thread = threading.Thread(
         target=reminder_checker_worker, 
-        args=(application,), 
+        args=(updater,), 
         daemon=True
     )
     worker_thread.start()
@@ -282,7 +290,9 @@ def main():
     
     # Start the bot
     print("🎯 Starting bot polling...")
-    application.run_polling()
+    updater.start_polling()
+    print("🤖 Bot is now running and ready!")
+    updater.idle()
 
 if __name__ == '__main__':
     main()
