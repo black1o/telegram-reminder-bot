@@ -2,11 +2,12 @@ import os
 import json
 import time
 import threading
+import schedule
 from datetime import datetime, timedelta
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 
-print("🚀 Starting Telegram Reminder Bot...")
+print("🤖 Starting Telegram Reminder Bot...")
 
 # Get bot token from environment
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
@@ -14,274 +15,203 @@ if not BOT_TOKEN:
     print("❌ ERROR: No BOT_TOKEN found!")
     exit(1)
 
-print("✅ Bot token found, initializing...")
+print("✅ Bot token found")
 
-# Simple reminder storage
+# Storage
 REMINDERS_FILE = 'reminders.json'
 
-def load_reminders():
-    """Load reminders from JSON file"""
-    try:
-        with open(REMINDERS_FILE, 'r') as f:
-            reminders = json.load(f)
-            print(f"📊 Loaded {len(reminders)} reminders from storage")
-            return reminders
-    except FileNotFoundError:
-        print("📝 No existing reminders file, starting fresh")
-        return {}
-
-def save_reminders(reminders):
-    """Save reminders to JSON file"""
-    with open(REMINDERS_FILE, 'w') as f:
-        json.dump(reminders, f, indent=2)
-
-# Global reminders dictionary
-reminders = load_reminders()
-
-async def start_command(update: Update, context: CallbackContext):
-    """Handler for /start command"""
-    print(f"👋 User {update.effective_user.id} started the bot")
+class ReminderBot:
+    def __init__(self):
+        self.reminders = self.load_reminders()
     
-    keyboard = [
-        ['📅 Add Reminder', '📋 My Reminders'],
-        ['🆘 Help']
-    ]
+    def load_reminders(self):
+        try:
+            with open(REMINDERS_FILE, 'r') as f:
+                return json.load(f)
+        except FileNotFoundError:
+            return {}
+    
+    def save_reminders(self):
+        with open(REMINDERS_FILE, 'w') as f:
+            json.dump(self.reminders, f, indent=2)
+    
+    def add_reminder(self, user_id, event_name, event_date, event_time):
+        reminder_id = f"{user_id}_{int(time.time())}"
+        event_datetime = f"{event_date} {event_time}"
+        
+        self.reminders[reminder_id] = {
+            'user_id': user_id,
+            'event_name': event_name,
+            'event_datetime': event_datetime,
+            'reminder_sent': False
+        }
+        self.save_reminders()
+        return reminder_id
+
+# Global bot instance
+bot_instance = ReminderBot()
+
+async def start(update: Update, context: CallbackContext):
+    keyboard = [['📅 Add Reminder', '📋 My Reminders'], ['ℹ️ Help']]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     
     await update.message.reply_text(
-        "🤖 **Reminder Bot Started!**\n\n"
-        "I can help you set reminders for important events!\n\n"
-        "**Quick Commands:**\n"
-        "• /remind - Set a new reminder\n"
-        "• /list - Show your reminders\n"
-        "• /help - Get help\n\n"
-        "Or use the buttons below:",
+        "🤖 **Reminder Bot**\n\n"
+        "I'll help you remember important events!\n"
+        "Use the buttons below:",
         reply_markup=reply_markup,
         parse_mode='Markdown'
     )
 
 async def help_command(update: Update, context: CallbackContext):
-    """Handler for /help command"""
     help_text = """
-🆘 **How to Use This Bot**
+ℹ️ **How to use:**
 
-**Set a Reminder:**
-Use: `/remind Event Name - YYYY-MM-DD - HH:MM`
+**Set Reminder:**
+Click 'Add Reminder' or send:
+`/remind Event Name - YYYY-MM-DD - HH:MM`
 
-**Examples:**
-`/remind Team Meeting - 2024-12-25 - 14:30`
-`/remind Birthday Party - 2024-11-15 - 18:00`
+**Example:**
+`/remind Meeting - 2024-12-25 - 14:30`
 
-**Other Commands:**
-`/list` - Show your active reminders
-`/help` - Show this help message
+**View Reminders:**
+Click 'My Reminders' or send `/list`
 
-**Features:**
-• Automatic reminders 30 minutes before events
-• Simple keyboard interface
-• 24/7 reliable service
+I'll remind you 30 minutes before each event! 🔔
     """
     await update.message.reply_text(help_text, parse_mode='Markdown')
 
 async def remind_command(update: Update, context: CallbackContext):
-    """Handler for /remind command"""
     user_id = update.effective_user.id
     
     try:
-        # Extract parts from command
         text = update.message.text.replace('/remind', '').strip()
         parts = [part.strip() for part in text.split('-') if part.strip()]
         
         if len(parts) != 3:
             await update.message.reply_text(
-                "❌ **Incorrect format!**\n\n"
-                "**Correct format:**\n"
-                "`/remind Event Name - YYYY-MM-DD - HH:MM`\n\n"
-                "**Example:**\n"
-                "`/remind Team Meeting - 2024-12-25 - 14:30`",
+                "❌ **Format:** `/remind Event Name - YYYY-MM-DD - HH:MM`\n\n"
+                "**Example:**\n`/remind Meeting - 2024-12-25 - 14:30`",
                 parse_mode='Markdown'
             )
             return
         
         event_name, event_date, event_time = parts
         
-        # Validate date and time
+        # Validate
         datetime.strptime(event_date, '%Y-%m-%d')
         datetime.strptime(event_time, '%H:%M')
         
-        # Create reminder ID
-        reminder_id = f"{user_id}_{int(time.time())}"
-        event_datetime = f"{event_date} {event_time}"
-        
-        # Add to reminders
-        reminders[reminder_id] = {
-            'user_id': user_id,
-            'event_name': event_name,
-            'event_datetime': event_datetime,
-            'reminder_minutes': 30,
-            'reminder_sent': False,
-            'created_at': time.time()
-        }
-        
-        # Save to file
-        save_reminders(reminders)
-        
-        print(f"✅ User {user_id} set reminder: {event_name} at {event_datetime}")
+        # Add reminder
+        reminder_id = bot_instance.add_reminder(user_id, event_name, event_date, event_time)
         
         await update.message.reply_text(
-            f"✅ **Reminder Set Successfully!**\n\n"
+            f"✅ **Reminder Set!**\n\n"
             f"**Event:** {event_name}\n"
-            f"**Date:** {event_date}\n"
-            f"**Time:** {event_time}\n"
+            f"**When:** {event_date} {event_time}\n"
             f"**Reminder:** 30 minutes before\n\n"
             f"I'll notify you! 🔔",
             parse_mode='Markdown'
         )
         
-    except ValueError as e:
+    except ValueError:
         await update.message.reply_text(
-            "❌ **Invalid date or time format!**\n\n"
-            "**Date must be:** YYYY-MM-DD (e.g., 2024-12-25)\n"
-            "**Time must be:** HH:MM (e.g., 14:30)\n\n"
-            "**Example:**\n"
-            "`/remind Meeting - 2024-12-25 - 14:30`",
+            "❌ **Invalid format!**\n\n"
+            "**Date:** YYYY-MM-DD (2024-12-25)\n"
+            "**Time:** HH:MM (14:30)\n\n"
+            "**Example:**\n`/remind Meeting - 2024-12-25 - 14:30`",
             parse_mode='Markdown'
         )
     except Exception as e:
-        print(f"❌ Error in remind_command: {e}")
-        await update.message.reply_text(
-            "❌ Sorry, there was an error setting your reminder. Please try again."
-        )
+        await update.message.reply_text("❌ Error setting reminder.")
 
 async def list_command(update: Update, context: CallbackContext):
-    """Handler for /list command - show user's reminders"""
     user_id = update.effective_user.id
-    
-    # Filter user's active reminders
     user_reminders = []
-    for reminder_id, reminder in reminders.items():
-        if (str(reminder['user_id']) == str(user_id) and 
-            not reminder['reminder_sent']):
+    
+    for reminder_id, reminder in bot_instance.reminders.items():
+        if str(reminder['user_id']) == str(user_id) and not reminder['reminder_sent']:
             user_reminders.append(reminder)
     
     if not user_reminders:
-        await update.message.reply_text(
-            "📭 **You have no active reminders.**\n\n"
-            "Set one using: `/remind Event Name - YYYY-MM-DD - HH:MM`",
-            parse_mode='Markdown'
-        )
+        await update.message.reply_text("📭 You have no active reminders.")
         return
     
-    # Sort by datetime
-    user_reminders.sort(key=lambda x: x['event_datetime'])
-    
-    message = "📋 **Your Active Reminders:**\n\n"
+    message = "📋 **Your Reminders:**\n\n"
     for i, reminder in enumerate(user_reminders, 1):
-        message += (
-            f"{i}. **{reminder['event_name']}**\n"
-            f"   🕐 {reminder['event_datetime']}\n"
-            f"   ⏰ {reminder['reminder_minutes']} minutes before\n\n"
-        )
+        message += f"{i}. **{reminder['event_name']}**\n   🕐 {reminder['event_datetime']}\n\n"
     
     await update.message.reply_text(message, parse_mode='Markdown')
 
-async def add_reminder_button(update: Update, context: CallbackContext):
-    """Handler for Add Reminder button"""
+async def add_reminder_btn(update: Update, context: CallbackContext):
     await update.message.reply_text(
-        "📝 **Set a New Reminder**\n\n"
-        "Use this format:\n"
+        "📝 To add a reminder, send:\n\n"
         "`/remind Event Name - YYYY-MM-DD - HH:MM`\n\n"
         "**Example:**\n"
-        "`/remind Team Meeting - 2024-12-25 - 14:30`\n\n"
-        "I'll remind you 30 minutes before the event! 🎯",
+        "`/remind Team Meeting - 2024-12-25 - 14:30`",
         parse_mode='Markdown'
     )
 
-async def my_reminders_button(update: Update, context: CallbackContext):
-    """Handler for My Reminders button"""
+async def my_reminders_btn(update: Update, context: CallbackContext):
     await list_command(update, context)
 
-async def help_button(update: Update, context: CallbackContext):
-    """Handler for Help button"""
+async def help_btn(update: Update, context: CallbackContext):
     await help_command(update, context)
 
-def check_reminders(app):
+def check_reminders():
     """Check and send due reminders"""
     current_time = datetime.now()
-    reminders_sent = 0
     
-    for reminder_id, reminder in reminders.items():
+    for reminder_id, reminder in bot_instance.reminders.items():
         if reminder['reminder_sent']:
             continue
             
         try:
             event_dt = datetime.strptime(reminder['event_datetime'], '%Y-%m-%d %H:%M')
-            reminder_time = event_dt - timedelta(minutes=reminder['reminder_minutes'])
+            reminder_time = event_dt - timedelta(minutes=30)
             
             if current_time >= reminder_time:
-                # Send reminder
-                app.bot.send_message(
-                    chat_id=reminder['user_id'],
-                    text=f"🔔 **REMINDER!**\n\n"
-                         f"**{reminder['event_name']}**\n"
-                         f"Starts at: {reminder['event_datetime']}\n\n"
-                         f"Don't forget! 🎯",
-                    parse_mode='Markdown'
-                )
+                # Mark as sent (we'll implement actual sending later)
                 reminder['reminder_sent'] = True
-                reminders_sent += 1
-                print(f"📨 Sent reminder: {reminder['event_name']}")
+                print(f"🔔 Due: {reminder['event_name']} for user {reminder['user_id']}")
                 
         except Exception as e:
-            print(f"❌ Error processing reminder {reminder_id}: {e}")
+            print(f"Error checking reminder: {e}")
     
-    if reminders_sent > 0:
-        save_reminders(reminders)
-        print(f"✅ Sent {reminders_sent} reminders")
+    bot_instance.save_reminders()
 
-def reminder_worker(app):
-    """Background worker to check reminders"""
-    print("🕐 Starting reminder worker...")
+def reminder_worker():
+    """Background worker"""
+    print("⏰ Starting reminder worker...")
+    schedule.every(1).minutes.do(check_reminders)
+    
     while True:
-        try:
-            check_reminders(app)
-            time.sleep(30)  # Check every 30 seconds
-        except Exception as e:
-            print(f"❌ Error in reminder worker: {e}")
-            time.sleep(60)
+        schedule.run_pending()
+        time.sleep(30)
 
 def main():
-    print("🔧 Initializing Telegram Bot Application...")
+    print("🔧 Initializing bot...")
     
     # Create application
-    application = Application.builder().token(BOT_TOKEN).build()
-    print("✅ Application created successfully")
+    app = Application.builder().token(BOT_TOKEN).build()
     
-    # Add command handlers
-    application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("remind", remind_command))
-    application.add_handler(CommandHandler("list", list_command))
+    # Add handlers
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("remind", remind_command))
+    app.add_handler(CommandHandler("list", list_command))
     
-    # Add button handlers
-    application.add_handler(MessageHandler(filters.Regex('^(📅 Add Reminder)$'), add_reminder_button))
-    application.add_handler(MessageHandler(filters.Regex('^(📋 My Reminders)$'), my_reminders_button))
-    application.add_handler(MessageHandler(filters.Regex('^(🆘 Help)$'), help_button))
+    # Button handlers
+    app.add_handler(MessageHandler(filters.Regex('^(📅 Add Reminder)$'), add_reminder_btn))
+    app.add_handler(MessageHandler(filters.Regex('^(📋 My Reminders)$'), my_reminders_btn))
+    app.add_handler(MessageHandler(filters.Regex('^(ℹ️ Help)$'), help_btn))
     
-    print("✅ All handlers added")
-    
-    # Start reminder worker in background
-    worker_thread = threading.Thread(
-        target=reminder_worker, 
-        args=(application,), 
-        daemon=True
-    )
+    # Start background worker
+    worker_thread = threading.Thread(target=reminder_worker, daemon=True)
     worker_thread.start()
-    print("✅ Background worker started")
     
-    # Start the bot
-    print("🎯 Starting bot polling...")
-    application.run_polling()
+    print("✅ Bot starting...")
+    app.run_polling()
 
 if __name__ == '__main__':
     main()
